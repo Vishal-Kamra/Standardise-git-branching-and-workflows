@@ -1,10 +1,6 @@
 name: Release to Main PR
 
 on:
-  push:
-    branches:
-      - release
-      - "release/**"
   pull_request:
     types: [closed]
     branches:
@@ -21,19 +17,17 @@ permissions:
   contents: read
   pull-requests: write
 
-concurrency:
-  group: release-to-main-${{ github.repository }}
-  cancel-in-progress: false
-
 jobs:
   open_release_pr:
     name: Create or update release → main PR
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: >-
-      github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+    concurrency:
+      group: release-to-main-${{ github.repository }}-${{ github.event.pull_request.base.ref || github.event.inputs.release_branch }}
+      cancel-in-progress: true
 
     steps:
       - name: Checkout
@@ -51,11 +45,8 @@ jobs:
             pull_request)
               echo "name=${{ github.event.pull_request.base.ref }}" >> "$GITHUB_OUTPUT"
               ;;
-            push)
-              echo "name=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
-              ;;
           esac
-          echo "Event: ${{ github.event_name }}, release branch: $(cat "$GITHUB_OUTPUT" | grep '^name=' | cut -d= -f2-)"
+          echo "Event: ${{ github.event_name }}, release branch: $(grep '^name=' "$GITHUB_OUTPUT" | cut -d= -f2-)"
 
       - name: Create or update release → main PR
         env:
@@ -88,7 +79,7 @@ jobs:
 
           - **Source:** \`${RELEASE_BRANCH}\`
           - **Target:** \`main\`
-          - **Updated when:** changes are merged or pushed to the release branch
+          - **Updated when:** changes are merged into the release branch
 
           After QA sign-off, add the \`release\` label to run the stable version bump and \`vX.Y.Z\` tag workflow.
           EOF
