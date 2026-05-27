@@ -5,6 +5,11 @@ on:
     branches:
       - release
       - "release/**"
+  pull_request:
+    types: [closed]
+    branches:
+      - release
+      - "release/**"
   workflow_dispatch:
     inputs:
       release_branch:
@@ -25,6 +30,10 @@ jobs:
     name: Create or update release → main PR
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
 
     steps:
       - name: Checkout
@@ -32,18 +41,44 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Resolve release branch
+        id: branch
+        run: |
+          case "${{ github.event_name }}" in
+            workflow_dispatch)
+              echo "name=${{ github.event.inputs.release_branch }}" >> "$GITHUB_OUTPUT"
+              ;;
+            pull_request)
+              echo "name=${{ github.event.pull_request.base.ref }}" >> "$GITHUB_OUTPUT"
+              ;;
+            push)
+              echo "name=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+          echo "Event: ${{ github.event_name }}, release branch: $(cat "$GITHUB_OUTPUT" | grep '^name=' | cut -d= -f2-)"
+
       - name: Create or update release → main PR
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_BRANCH: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_branch || github.ref_name }}
+          RELEASE_BRANCH: ${{ steps.branch.outputs.name }}
         run: |
           set -euo pipefail
 
+          echo "Resolving release → main PR for branch: ${RELEASE_BRANCH}"
+
           git fetch origin main "${RELEASE_BRANCH}"
+          git rev-parse "origin/${RELEASE_BRANCH}" >/dev/null
 
           ahead="$(git rev-list --count "origin/main..origin/${RELEASE_BRANCH}")"
+          echo "Commits on ${RELEASE_BRANCH} ahead of main: ${ahead}"
+
           if [ "$ahead" = "0" ]; then
-            echo "Release branch '${RELEASE_BRANCH}' is not ahead of main; skipping."
+            echo "::notice::Release branch '${RELEASE_BRANCH}' is not ahead of main; skipping PR create/update."
+            {
+              echo "## Release → main PR skipped"
+              echo ""
+              echo "Branch \`${RELEASE_BRANCH}\` has no commits ahead of \`main\`."
+            } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 
@@ -63,7 +98,17 @@ jobs:
           if [ -z "$pr_number" ]; then
             gh pr create --base main --head "${RELEASE_BRANCH}" --title "$title" --body "$body"
             echo "Created release → main PR from ${RELEASE_BRANCH}."
+            {
+              echo "## Release → main PR created"
+              echo ""
+              echo "Opened PR from \`${RELEASE_BRANCH}\` → \`main\` (${ahead} commit(s) ahead)."
+            } >> "$GITHUB_STEP_SUMMARY"
           else
             gh pr edit "$pr_number" --title "$title" --body "$body"
             echo "Updated release → main PR #${pr_number}."
+            {
+              echo "## Release → main PR updated"
+              echo ""
+              echo "Updated PR #${pr_number} (\`${RELEASE_BRANCH}\` → \`main\`, ${ahead} commit(s) ahead)."
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
