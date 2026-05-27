@@ -1,4 +1,4 @@
-# Standardise-git-branching-and-workflows
+# Standardise git branching and workflows
 
 This repository is a **working demo** of a standard Git flow + GitHub Actions automation using Changesets.
 
