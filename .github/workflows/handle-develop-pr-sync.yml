@@ -42,8 +42,17 @@ jobs:
           set -euo pipefail
 
           git fetch --all --tags
-          git checkout develop
-          git pull --ff-only origin develop
+
+          if git ls-remote --exit-code --heads origin develop >/dev/null 2>&1; then
+            echo "Checking out existing develop branch..."
+            git checkout develop
+            git pull --ff-only origin develop
+          else
+            echo "develop does not exist. Creating from main..."
+            git fetch origin main
+            git checkout -b develop origin/main
+            git push -u origin develop
+          fi
 
           echo "Merging PR head $PR_HEAD_SHA into develop..."
           if git merge --no-ff --no-edit "$PR_HEAD_SHA"; then
@@ -76,7 +85,7 @@ jobs:
               "git commit",
               "git push origin develop",
               "```",
-            ].join(\"\\n\");
+            ].join("\n");
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
